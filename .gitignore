@@ -3,6 +3,7 @@ node_modules/
 dist/
 build/
 .vite/
+test/.spec-build.cjs
 .cache/
 coverage/
 *.log
