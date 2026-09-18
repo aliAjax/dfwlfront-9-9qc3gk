@@ -1,193 +1,173 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
-
-type Field = {
-  key: string;
-  label: string;
-  type?: "number" | "date" | "select";
-  options?: readonly string[];
-};
-
-type RecordItem = {
-  id: string;
-  status: string;
-  notes: string;
-  createdAt: string;
-  [key: string]: string | number;
-};
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import {
+  FUELS,
+  activeChain,
+  currentAt,
+  fmtPrice,
+  fmtTime,
+  pendingAfter,
+  toLocalInput,
+  usePriceStore,
+  type PriceVersion,
+} from "./store";
 
 const project = {
-  "number": 9,
-  "folder": "dfwl/frontend/dfwlfront-9",
-  "framework": "vue",
-  "title": "油品价格维护",
-  "subtitle": "维护挂牌价、记录更新时间，并支持恢复默认价格。",
-  "industry": "石油",
-  "stack": [
-    "Vue3",
-    "Vite",
-    "TypeScript",
-    "Pinia",
-    "Naive UI"
-  ],
-  "storageKey": "dfwlfront-9-price",
-  "formTitle": "调整油品价格",
-  "primaryAction": "保存价格",
-  "entityLabel": "油品",
-  "statuses": [
-    "生效中",
-    "待确认",
-    "已回退"
-  ],
-  "filters": [
-    "全部油品",
-    "92号汽油",
-    "95号汽油",
-    "98号汽油",
-    "柴油"
-  ],
-  "fields": [
-    {
-      "key": "fuel",
-      "label": "油品",
-      "type": "select",
-      "options": [
-        "92号汽油",
-        "95号汽油",
-        "98号汽油",
-        "柴油"
-      ]
-    },
-    {
-      "key": "price",
-      "label": "挂牌价",
-      "type": "number"
-    },
-    {
-      "key": "operator",
-      "label": "操作员"
-    },
-    {
-      "key": "effectiveDate",
-      "label": "生效日期",
-      "type": "date"
-    }
-  ],
-  "records": [
-    {
-      "fuel": "92号汽油",
-      "price": 7.62,
-      "operator": "站长",
-      "effectiveDate": "2026-06-30",
-      "status": "生效中",
-      "notes": "正常调价"
-    },
-    {
-      "fuel": "柴油",
-      "price": 7.18,
-      "operator": "值班经理",
-      "effectiveDate": "2026-06-30",
-      "status": "待确认",
-      "notes": "等待复核"
-    }
-  ],
-  "metricLabels": [
-    "油品数",
-    "待确认",
-    "平均挂牌价"
-  ]
-} as const;
+  title: "油品价格维护",
+  subtitle:
+    "为每种油品维护按生效时刻排序的价格版本：当前挂牌价取已生效的最新版本，未来版本可改期或撤销；补录只能新建带原因的修订版本，已生效历史不可改写。",
+  industry: "石油",
+  stack: ["Vue3", "Vite", "TypeScript", "Pinia", "Naive UI"],
+};
 
-const fields = project.fields as readonly Field[];
-const statuses = [...project.statuses];
+const store = usePriceStore();
 
-function createBlank() {
-  return Object.fromEntries(fields.map((field) => [field.key, field.type === "number" ? 0 : ""]));
-}
-
-function loadRecords(): RecordItem[] {
-  const raw = localStorage.getItem(project.storageKey);
-  if (!raw) {
-    return project.records.map((record, index) => ({
-      ...record,
-      id: `seed-${index + 1}`,
-      createdAt: new Date(Date.now() - index * 86400000).toISOString()
-    })) as RecordItem[];
-  }
-  try {
-    return JSON.parse(raw) as RecordItem[];
-  } catch {
-    return [];
-  }
-}
-
-const records = ref<RecordItem[]>(loadRecords());
-const form = reactive<Record<string, string | number>>(createBlank());
-const note = ref("");
-const filter = ref(project.filters[0]);
-
-const filteredRecords = computed(() => {
-  if (filter.value.startsWith("全部")) return records.value;
-  return records.value.filter((record) => Object.values(record).includes(filter.value));
+// 当前时间每秒推进，跨生效边界时当前价/待生效价自动切换
+const now = ref(new Date().toISOString());
+let timer = 0;
+onMounted(() => {
+  timer = window.setInterval(() => {
+    now.value = new Date().toISOString();
+  }, 1000);
 });
+onUnmounted(() => window.clearInterval(timer));
 
-const metrics = computed(() => {
-  const total = records.value.length;
-  const second = records.value.filter((record) => record.status === statuses[1]).length;
-  const third = records.value.filter((record) => record.status === statuses[2]).length;
-  const numberValues = records.value.flatMap((record) =>
-    fields.filter((field) => field.type === "number").map((field) => Number(record[field.key] || 0))
-  );
-  const sum = numberValues.reduce((acc, value) => acc + value, 0);
-  return [total, second || sum, third || Math.round(sum / Math.max(total, 1))];
+const operator = ref("站长");
+const filter = ref("全部油品");
+
+const form = reactive({
+  fuel: "",
+  price: null as number | null,
+  effectiveAt: "",
+  reason: "",
 });
-
-const chartRows = computed(() => statuses.map((status) => ({
-  status,
-  value: records.value.filter((record) => record.status === status).length
-})));
-
-const maxChart = computed(() => Math.max(1, ...chartRows.value.map((row) => row.value)));
-
-function persist() {
-  localStorage.setItem(project.storageKey, JSON.stringify(records.value));
-}
-
-function nextStatus(status: string) {
-  const index = statuses.indexOf(status);
-  return statuses[(index + 1) % statuses.length];
-}
-
-function primaryText(record: RecordItem) {
-  const first = fields[0];
-  const second = fields[1];
-  return [record[first.key], record[second.key]].filter(Boolean).join(" / ") || project.entityLabel;
-}
+const formError = ref("");
+const formNotice = ref("");
 
 function submit() {
-  records.value = [
-    {
-      ...form,
-      id: crypto.randomUUID(),
-      status: statuses[0],
-      notes: note.value || "暂无备注",
-      createdAt: new Date().toISOString()
-    } as RecordItem,
-    ...records.value
-  ];
-  Object.assign(form, createBlank());
-  note.value = "";
-  persist();
+  formError.value = "";
+  formNotice.value = "";
+  const err = store.addVersion({
+    fuel: form.fuel,
+    price: form.price,
+    effectiveAt: form.effectiveAt,
+    reason: form.reason,
+    operator: operator.value,
+  });
+  if (err) {
+    formError.value = err;
+    return;
+  }
+  formNotice.value = "价格版本已保存，当前价、待生效价与审计记录已同步更新。";
+  form.price = null;
+  form.effectiveAt = "";
+  form.reason = "";
 }
 
-function flow(record: RecordItem) {
-  record.status = nextStatus(record.status);
-  persist();
+function chainOf(fuel: string) {
+  return activeChain(store.versions, fuel);
 }
 
-function remove(id: string) {
-  records.value = records.value.filter((record) => record.id !== id);
-  persist();
+function timelineOf(fuel: string) {
+  return store.versions
+    .filter((v) => v.fuel === fuel)
+    .slice()
+    .sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt) || b.createdAt.localeCompare(a.createdAt));
+}
+
+const visibleFuels = computed(() =>
+  filter.value === "全部油品" ? [...FUELS] : FUELS.filter((f) => f === filter.value)
+);
+
+const cards = computed(() =>
+  visibleFuels.value.map((fuel) => {
+    const chain = chainOf(fuel);
+    return {
+      fuel,
+      current: currentAt(chain, now.value),
+      next: pendingAfter(chain, now.value)[0] ?? null,
+      timeline: timelineOf(fuel),
+    };
+  })
+);
+
+const metrics = computed(() => [
+  { label: "油品数", value: FUELS.length },
+  { label: "已定价油品", value: FUELS.filter((f) => currentAt(chainOf(f), now.value)).length },
+  { label: "待生效版本", value: FUELS.reduce((sum, f) => sum + pendingAfter(chainOf(f), now.value).length, 0) },
+  { label: "审计记录", value: store.audit.length },
+]);
+
+const chartRows = computed(() => FUELS.map((fuel) => ({ fuel, value: chainOf(fuel).length })));
+const maxChart = computed(() => Math.max(1, ...chartRows.value.map((row) => row.value)));
+
+const auditDesc = computed(() =>
+  store.audit.slice().sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id))
+);
+
+function statusOf(v: PriceVersion, current: PriceVersion | null): string {
+  if (v.revokedAt) return "已撤销";
+  if (v.effectiveAt > now.value) return "待生效";
+  return current && current.id === v.id ? "生效中" : "历史版本";
+}
+
+function statusClass(v: PriceVersion, current: PriceVersion | null): string {
+  const status = statusOf(v, current);
+  if (status === "待生效") return "pending";
+  if (status === "已撤销") return "revoked";
+  if (status === "历史版本") return "history";
+  return "";
+}
+
+function canReschedule(v: PriceVersion): boolean {
+  return !v.revokedAt && v.effectiveAt > now.value;
+}
+
+function canRevoke(v: PriceVersion, current: PriceVersion | null): boolean {
+  return !v.revokedAt && (v.effectiveAt > now.value || current?.id === v.id);
+}
+
+// 行内改期 / 撤销
+const reschedulingId = ref<string | null>(null);
+const rescheduleValue = ref("");
+const revokingId = ref<string | null>(null);
+const revokeReason = ref("");
+const inlineError = ref("");
+
+function closeInline() {
+  reschedulingId.value = null;
+  revokingId.value = null;
+  inlineError.value = "";
+}
+
+function openReschedule(v: PriceVersion) {
+  closeInline();
+  reschedulingId.value = v.id;
+  rescheduleValue.value = toLocalInput(v.effectiveAt);
+}
+
+function openRevoke(v: PriceVersion) {
+  closeInline();
+  revokingId.value = v.id;
+  revokeReason.value = "";
+}
+
+function confirmReschedule(v: PriceVersion) {
+  const err = store.reschedule(v.id, rescheduleValue.value, operator.value);
+  if (err) {
+    inlineError.value = err;
+    return;
+  }
+  closeInline();
+}
+
+function confirmRevoke(v: PriceVersion) {
+  const err = store.revoke(v.id, revokeReason.value, operator.value);
+  if (err) {
+    inlineError.value = err;
+    return;
+  }
+  closeInline();
 }
 </script>
 
@@ -206,67 +186,146 @@ function remove(id: string) {
       </header>
 
       <section class="metrics">
-        <article v-for="(label, index) in project.metricLabels" :key="label" class="metric">
-          <span>{{ label }}</span>
-          <strong>{{ metrics[index] }}</strong>
+        <article v-for="metric in metrics" :key="metric.label" class="metric">
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
         </article>
       </section>
 
       <section class="workspace">
         <form class="panel" @submit.prevent="submit">
-          <h2>{{ project.formTitle }}</h2>
+          <h2>新建价格版本</h2>
+          <p class="hint">
+            补录历史或修正价格时，只能新增带原因的修订版本；已生效历史不可改写，同一生效时刻不得重叠。
+          </p>
           <div class="form-grid">
-            <label v-for="field in fields" :key="field.key">
-              {{ field.label }}
-              <select v-if="field.type === 'select'" v-model="form[field.key]" required>
+            <label>
+              油品
+              <select v-model="form.fuel" required>
                 <option value="">请选择</option>
-                <option v-for="option in field.options" :key="option">{{ option }}</option>
+                <option v-for="fuel in FUELS" :key="fuel">{{ fuel }}</option>
               </select>
-              <input v-else v-model="form[field.key]" :type="field.type || 'text'" required />
             </label>
             <label>
-              备注
-              <textarea v-model="note" placeholder="填写处理说明或现场备注" />
+              挂牌价（元/升）
+              <input v-model.number="form.price" type="number" min="0.01" step="0.01" required />
             </label>
-            <button type="submit">{{ project.primaryAction }}</button>
+            <label>
+              生效时刻
+              <input v-model="form.effectiveAt" type="datetime-local" required />
+            </label>
+            <label>
+              调价 / 补录原因
+              <textarea v-model="form.reason" required placeholder="必填，随版本写入审计记录" />
+            </label>
+            <label>
+              操作员（用于审计署名）
+              <input v-model="operator" type="text" required />
+            </label>
+            <p v-if="formError" class="error">{{ formError }}</p>
+            <p v-if="formNotice" class="ok">{{ formNotice }}</p>
+            <button type="submit">保存价格版本</button>
           </div>
         </form>
 
         <section class="list-panel">
           <div class="toolbar">
-            <h2>{{ project.entityLabel }}列表</h2>
+            <h2>油品价格看板</h2>
             <select v-model="filter">
-              <option v-for="item in project.filters" :key="item">{{ item }}</option>
+              <option>全部油品</option>
+              <option v-for="fuel in FUELS" :key="fuel">{{ fuel }}</option>
             </select>
           </div>
 
           <div class="record-grid">
-            <div v-if="filteredRecords.length === 0" class="empty">暂无匹配数据</div>
-            <article v-for="record in filteredRecords" :key="record.id" class="record">
-              <div class="record-head">
-                <p class="record-title">{{ primaryText(record) }}</p>
-                <span class="status">{{ record.status }}</span>
+            <article v-for="card in cards" :key="card.fuel" class="fuel-card">
+              <div class="fuel-head">
+                <h3>{{ card.fuel }}</h3>
+                <div class="current">
+                  <template v-if="card.current">
+                    <strong>{{ fmtPrice(card.current.price) }}</strong>
+                    <span>当前挂牌价 · 自 {{ fmtTime(card.current.effectiveAt) }} 起生效</span>
+                  </template>
+                  <template v-else>
+                    <strong class="unpriced">未定价</strong>
+                    <span>暂无已生效的价格版本</span>
+                  </template>
+                </div>
               </div>
-              <div class="details">
-                <span v-for="field in fields" :key="field.key">{{ field.label }}: {{ record[field.key] }}</span>
-              </div>
-              <p class="note">{{ record.notes }}</p>
-              <div class="actions">
-                <button type="button" @click="flow(record)">流转状态</button>
-                <button class="secondary" type="button" @click="navigator.clipboard?.writeText(primaryText(record))">复制摘要</button>
-                <button class="danger" type="button" @click="remove(record.id)">删除</button>
+
+              <p v-if="card.next" class="pending-strip">
+                待生效：{{ fmtPrice(card.next.price) }}，将于 {{ fmtTime(card.next.effectiveAt) }} 起生效（可改期或撤销）
+              </p>
+
+              <div class="version-list">
+                <div
+                  v-for="v in card.timeline"
+                  :key="v.id"
+                  class="version-row"
+                  :class="{ revoked: !!v.revokedAt }"
+                >
+                  <div class="version-main">
+                    <span class="version-price">{{ fmtPrice(v.price) }}</span>
+                    <span class="status" :class="statusClass(v, card.current)">
+                      {{ statusOf(v, card.current) }}
+                    </span>
+                  </div>
+                  <div class="version-meta">
+                    <span>生效时刻：{{ fmtTime(v.effectiveAt) }}</span>
+                    <span>操作员：{{ v.operator }}</span>
+                    <span>记录于：{{ fmtTime(v.createdAt) }}</span>
+                  </div>
+                  <p class="version-reason">原因：{{ v.reason }}</p>
+                  <p v-if="v.revokedAt" class="version-reason revoked-info">
+                    已于 {{ fmtTime(v.revokedAt) }} 撤销<template v-if="v.revokeReason">：{{ v.revokeReason }}</template>
+                  </p>
+                  <div v-if="canReschedule(v) || canRevoke(v, card.current)" class="version-actions">
+                    <button v-if="canReschedule(v)" type="button" @click="openReschedule(v)">改期</button>
+                    <button v-if="canRevoke(v, card.current)" type="button" class="danger" @click="openRevoke(v)">
+                      撤销
+                    </button>
+                  </div>
+                  <div v-if="reschedulingId === v.id" class="inline-form">
+                    <input v-model="rescheduleValue" type="datetime-local" />
+                    <button type="button" @click="confirmReschedule(v)">确认改期</button>
+                    <button type="button" class="secondary" @click="closeInline">取消</button>
+                  </div>
+                  <div v-if="revokingId === v.id" class="inline-form">
+                    <input v-model="revokeReason" type="text" placeholder="撤销说明（可选，写入审计）" />
+                    <button type="button" class="danger" @click="confirmRevoke(v)">确认撤销</button>
+                    <button type="button" class="secondary" @click="closeInline">取消</button>
+                  </div>
+                  <p v-if="(reschedulingId === v.id || revokingId === v.id) && inlineError" class="error">
+                    {{ inlineError }}
+                  </p>
+                </div>
+                <div v-if="card.timeline.length === 0" class="empty">暂无价格版本</div>
               </div>
             </article>
           </div>
 
           <div class="mini-chart">
-            <div v-for="row in chartRows" :key="row.status" class="bar">
-              <span>{{ row.status }}</span>
+            <div v-for="row in chartRows" :key="row.fuel" class="bar">
+              <span>{{ row.fuel }}</span>
               <div class="bar-track"><div class="bar-fill" :style="{ width: `${(row.value / maxChart) * 100}%` }" /></div>
               <strong>{{ row.value }}</strong>
             </div>
           </div>
         </section>
+      </section>
+
+      <section class="panel audit-panel">
+        <h2>审计记录</h2>
+        <div class="audit-list">
+          <div v-for="entry in auditDesc" :key="entry.id" class="audit-row">
+            <span>{{ fmtTime(entry.at) }}</span>
+            <span class="audit-action">{{ entry.action }}</span>
+            <span>{{ entry.fuel }}</span>
+            <span class="audit-detail">{{ entry.detail }}</span>
+            <span>{{ entry.operator }}</span>
+          </div>
+          <div v-if="auditDesc.length === 0" class="empty">暂无审计记录</div>
+        </div>
       </section>
     </div>
   </main>

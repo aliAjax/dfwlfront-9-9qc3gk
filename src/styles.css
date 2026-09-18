@@ -83,7 +83,7 @@ h1 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -111,6 +111,7 @@ h1 {
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;
   gap: 18px;
+  align-items: start;
 }
 
 .panel, .list-panel {
@@ -123,6 +124,13 @@ h1 {
 .panel h2, .list-panel h2 {
   margin: 0 0 14px;
   font-size: 20px;
+}
+
+.hint {
+  margin: 0 0 14px;
+  color: #69758c;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .form-grid {
@@ -151,6 +159,24 @@ textarea {
   resize: vertical;
 }
 
+.error {
+  margin: 0;
+  color: #c84b31;
+  background: #fdece7;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.ok {
+  margin: 0;
+  color: #14724f;
+  background: #e8f4ef;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 .toolbar {
   display: flex;
   gap: 10px;
@@ -160,29 +186,98 @@ textarea {
   margin-bottom: 14px;
 }
 
+.toolbar select {
+  width: auto;
+}
+
 .record-grid {
   display: grid;
   gap: 12px;
 }
 
-.record {
+.fuel-card {
   border: 1px solid #dfe7f1;
   border-radius: 8px;
   padding: 14px;
   background: #fbfcfe;
+  display: grid;
+  gap: 12px;
 }
 
-.record-head {
+.fuel-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: start;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-.record-title {
+.fuel-head h3 {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
+}
+
+.current {
+  text-align: right;
+}
+
+.current strong {
+  display: block;
+  font-size: 26px;
+  color: #176b87;
+}
+
+.current strong.unpriced {
+  color: #a03a24;
+}
+
+.current span {
+  display: block;
+  color: #69758c;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.pending-strip {
+  margin: 0;
+  background: #fff8e6;
+  border: 1px solid #f0dfa8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #7a5b12;
+}
+
+.version-list {
+  display: grid;
+  gap: 8px;
+}
+
+.version-row {
+  border: 1px solid #e3eaf3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  display: grid;
+  gap: 8px;
+}
+
+.version-row.revoked {
+  opacity: .65;
+  background: #f6f8fb;
+}
+
+.version-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.version-price {
   font-weight: 800;
+  font-size: 16px;
 }
 
 .status {
@@ -194,27 +289,62 @@ textarea {
   white-space: nowrap;
 }
 
-.details {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 14px;
-  margin: 12px 0;
+.status.pending { background: #fff3d6; color: #8a6410; }
+.status.history { background: #e8eef5; color: #536078; }
+.status.revoked { background: #f3e3de; color: #a03a24; }
+
+.version-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
   color: #536078;
-  font-size: 14px;
+  font-size: 13px;
 }
 
-.note {
+.version-reason {
+  margin: 0;
   color: #445069;
   background: #eef5fb;
   border-radius: 8px;
-  padding: 10px;
-  margin: 0 0 12px;
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
-.actions {
+.version-reason.revoked-info {
+  background: #fdece7;
+  color: #a03a24;
+}
+
+.version-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.version-actions button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #eef5fb;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 200px;
+  width: auto;
+}
+
+.inline-form button {
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .mini-chart {
@@ -245,6 +375,36 @@ textarea {
   background: linear-gradient(90deg, #176b87, #64b6ac);
 }
 
+.audit-panel {
+  margin-top: 18px;
+}
+
+.audit-list {
+  display: grid;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.audit-row {
+  display: grid;
+  grid-template-columns: 140px 76px 84px 1fr 84px;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px dashed #e3eaf3;
+  color: #445069;
+  font-size: 13px;
+}
+
+.audit-action {
+  font-weight: 700;
+  color: #176b87;
+}
+
+.audit-detail {
+  line-height: 1.5;
+}
+
 .empty {
   text-align: center;
   color: #69758c;
@@ -255,6 +415,7 @@ textarea {
   .app { padding: 18px; }
   .topbar, .workspace { grid-template-columns: 1fr; }
   .stack { justify-content: flex-start; }
-  .metrics { grid-template-columns: 1fr; }
-  .details { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .current { text-align: left; }
+  .audit-row { grid-template-columns: 1fr; gap: 4px; }
 }
